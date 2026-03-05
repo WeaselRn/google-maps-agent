@@ -1,0 +1,182 @@
+@import "tailwindcss";
+
+/* ============================================
+   AI Navigation Copilot — Global Styles
+   ============================================ */
+
+/* Import Inter font for modern typography */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* Base styles */
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar (Webkit) */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+/* Marker fade-in */
+@keyframes marker-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.8);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.marker-pin {
+  animation: marker-enter 0.35s ease-out both;
+}
+
+/* Stagger markers */
+.marker-pin:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.marker-pin:nth-child(2) {
+  animation-delay: 60ms;
+}
+
+.marker-pin:nth-child(3) {
+  animation-delay: 120ms;
+}
+
+.marker-pin:nth-child(4) {
+  animation-delay: 180ms;
+}
+
+.marker-pin:nth-child(5) {
+  animation-delay: 240ms;
+}
+
+.marker-pin:nth-child(6) {
+  animation-delay: 300ms;
+}
+
+.marker-pin:nth-child(7) {
+  animation-delay: 360ms;
+}
+
+.marker-pin:nth-child(8) {
+  animation-delay: 420ms;
+}
+
+.marker-pin:nth-child(9) {
+  animation-delay: 480ms;
+}
+
+.marker-pin:nth-child(10) {
+  animation-delay: 540ms;
+}
+
+/* PlaceList item slide-in */
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.place-card {
+  animation: slide-in-left 0.3s ease-out both;
+}
+
+.place-card:nth-child(1) {
+  animation-delay: 50ms;
+}
+
+.place-card:nth-child(2) {
+  animation-delay: 100ms;
+}
+
+.place-card:nth-child(3) {
+  animation-delay: 150ms;
+}
+
+.place-card:nth-child(4) {
+  animation-delay: 200ms;
+}
+
+.place-card:nth-child(5) {
+  animation-delay: 250ms;
+}
+
+.place-card:nth-child(6) {
+  animation-delay: 300ms;
+}
+
+.place-card:nth-child(7) {
+  animation-delay: 350ms;
+}
+
+.place-card:nth-child(8) {
+  animation-delay: 400ms;
+}
+
+.place-card:nth-child(9) {
+  animation-delay: 450ms;
+}
+
+.place-card:nth-child(10) {
+  animation-delay: 500ms;
+}
+
+/* Chat message enter */
+@keyframes msg-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-msg {
+  animation: msg-enter 0.25s ease-out both;
+}
+
+/* MapLibre attribution smaller on mobile */
+@media (max-width: 767px) {
+  .maplibregl-ctrl-attrib {
+    font-size: 8px !important;
+  }
+}
