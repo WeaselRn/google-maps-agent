@@ -1,97 +1,236 @@
 # AI Navigation Copilot
 
-Multimodal AI agent for route-aware navigation assistance.
-Uses **OpenStreetMap**, **OSRM**, **Overpass API**, and **Google Gemini** (via ADK).
+Multimodal **AI navigation assistant** that helps users discover places along a route using natural language.
 
-## Tech Stack
+The system combines **Google Gemini AI**, **Google Maps APIs**, and a **React map interface** to provide route-aware recommendations such as cafes, restaurants, and fuel stops during a journey.
 
-| Layer | Technology |
-|-------|-----------|
-| AI Agent | Google ADK + Gemini 2.0 Flash |
-| Routing | OSRM (Open Source Routing Machine) |
-| Places | Overpass API (OpenStreetMap) |
-| Geocoding | Nominatim |
-| Map Rendering | MapLibre GL JS + react-map-gl |
-| Backend | Python, FastAPI, uvicorn |
-| Frontend | React, TypeScript, Vite, Tailwind CSS |
+This project is built for a **Google AI Hackathon** and demonstrates an **agent-based navigation assistant** powered by **Google ADK**.
 
-## Project Structure
+---
+
+# Architecture Overview
+
+User Query
+↓
+Gemini Agent (Google ADK)
+↓
+Google Directions API
+↓
+Route Sampling Algorithm
+↓
+Google Places API
+↓
+Map UI (Google Maps JS API)
+
+---
+
+# Tech Stack
+
+| Layer            | Technology                    |
+| ---------------- | ----------------------------- |
+| AI Agent         | Google ADK + Gemini 1.5 Flash |
+| Routing          | Google Directions API         |
+| Places Discovery | Google Places API             |
+| Map Rendering    | Google Maps JavaScript API    |
+| Backend          | Python, FastAPI, uvicorn      |
+| Frontend         | React, TypeScript, Vite       |
+| Deployment       | Google Cloud Run              |
+
+---
+
+# Core Features
+
+### Route-Aware Place Discovery
+
+Users can ask questions like:
+
+Find cafes along my route to Fort Kochi.
+
+The system:
+
+1. Calculates the route
+2. Samples coordinates along the route
+3. Searches nearby places
+4. Returns ranked recommendations
+
+---
+
+### AI Navigation Assistant
+
+The AI agent can interpret natural language queries such as:
+
+* Find restaurants along my route
+* Add a fuel stop before my destination
+* Find vegetarian cafes within 5 minutes detour
+
+The agent decides which tools to call to retrieve route and place information.
+
+---
+
+### Interactive Map Interface
+
+The frontend map displays:
+
+* route overlays
+* recommended stops
+* clickable place markers
+
+---
+
+# Project Structure
 
 ```
 google-agent/
 ├── backend/
-│   ├── agent/        # ADK agent + system prompt
-│   ├── api/          # POST /agent endpoint
+│   ├── agent/        # ADK agent configuration + prompts
 │   ├── tools/        # Route, places, detour tools
+│   ├── api/          # POST /agent endpoint
 │   ├── main.py       # FastAPI entry point
 │   ├── requirements.txt
 │   └── Dockerfile
+│
 ├── frontend/
 │   ├── src/
-│   │   ├── components/  # MapView, ChatPanel, SearchBar, etc.
-│   │   ├── services/    # API client
-│   │   └── types/       # TypeScript interfaces
+│   │   ├── components/   # MapView, ChatPanel, SearchBar
+│   │   ├── services/     # API client
+│   │   └── types/        # TypeScript interfaces
 │   └── vite.config.ts
+│
 └── README.md
 ```
 
-## Setup
+---
 
-### Backend
+# Setup
 
-```bash
+## Backend
+
+```
 cd backend
-cp .env.example .env   # fill in GEMINI_API_KEY
+cp .env.example .env
+```
+
+Add your API keys.
+
+```
 pip install -r requirements.txt
 python main.py
 ```
 
-### Frontend
+Backend runs at:
 
-```bash
+```
+http://localhost:8080
+```
+
+---
+
+## Frontend
+
+```
 cd frontend
 cp .env.example .env
 npm install
 npm run dev
 ```
 
-## Environment Variables
+Open:
 
-### Backend (`backend/.env`)
+```
+http://localhost:5173
+```
 
-| Variable | Description |
-|----------|-----------|
-| `GEMINI_API_KEY` | Google Gemini API key (for ADK agent) |
-| `OSRM_BASE_URL` | OSRM server URL (default: `https://router.project-osrm.org`) |
+---
 
-### Frontend (`frontend/.env`)
+# Environment Variables
 
-| Variable | Description |
-|----------|-----------|
-| `VITE_API_BASE_URL` | Backend URL (default: `http://localhost:8080`) |
+## Backend (`backend/.env`)
 
-> **Note:** MapLibre uses free OpenStreetMap tiles — no API key needed for map rendering.
+| Variable            | Description                      |
+| ------------------- | -------------------------------- |
+| GEMINI_API_KEY      | Google Gemini API key            |
+| GOOGLE_MAPS_API_KEY | Key for Places + Directions APIs |
 
-## Usage
+---
 
-1. Start the backend on port 8080
-2. Start the frontend dev server
-3. Open `http://localhost:5173`
-4. Try: **"Find cafes along my route from Ernakulam to Fort Kochi"**
+## Frontend (`frontend/.env`)
 
-## Deployment
+| Variable                 | Description            |
+| ------------------------ | ---------------------- |
+| VITE_GOOGLE_MAPS_API_KEY | Google Maps JS API key |
+| VITE_API_BASE_URL        | Backend URL            |
 
-### Docker (Backend)
+Default backend URL:
 
-```bash
+```
+http://localhost:8080
+```
+
+---
+
+# Example Query
+
+```
+Find cafes along my route from Ernakulam to Fort Kochi
+```
+
+The AI agent will:
+
+1. Compute the route
+2. Sample points along the journey
+3. Query nearby cafes
+4. Return recommendations
+
+The map UI then displays the results as markers.
+
+---
+
+# Deployment
+
+## Backend Deployment (Google Cloud Run)
+
+Build the container:
+
+```
 cd backend
 docker build -t navigation-copilot .
-docker run -p 8080:8080 --env-file .env navigation-copilot
 ```
 
-### Frontend Build
+Deploy to Cloud Run.
 
-```bash
+The backend container runs on port:
+
+```
+8080
+```
+
+---
+
+## Frontend Build
+
+```
 cd frontend
-npm run build  # outputs to dist/
+npm run build
 ```
+
+Production files will be generated in:
+
+```
+dist/
+```
+
+---
+
+# Future Improvements
+
+* Voice interaction with Gemini Live API
+* Traffic-aware route planning
+* Contextual stop suggestions during long trips
+* Personalized travel recommendations
+* Mobile-friendly UI
+
+---
+
+# License
+
+MIT License
