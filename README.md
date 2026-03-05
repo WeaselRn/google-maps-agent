@@ -11,16 +11,27 @@ This project is built for a **Google AI Hackathon** and demonstrates an **agent-
 # Architecture Overview
 
 User Query
+
 ↓
+
 Gemini Agent (Google ADK)
+
 ↓
+
 Google Directions API
+
 ↓
+
 Route Sampling Algorithm
+
 ↓
+
 Google Places API
+
 ↓
+
 Map UI (Google Maps JS API)
+
 
 ---
 
