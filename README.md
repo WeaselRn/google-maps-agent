@@ -39,7 +39,7 @@ Map UI (Google Maps JS API)
 
 | Layer            | Technology                    |
 | ---------------- | ----------------------------- |
-| AI Agent         | Google ADK + Gemini 1.5 Flash |
+| AI Agent         | Google ADK + Gemini 2.5 Flash |
 | Routing          | Google Directions API         |
 | Places Discovery | Google Places API             |
 | Map Rendering    | Google Maps JavaScript API    |
