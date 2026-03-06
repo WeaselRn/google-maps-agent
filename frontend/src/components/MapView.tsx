@@ -44,12 +44,21 @@ export default function MapView({ places, route, selectedPlaceId, onMarkerClick 
     // Fit map to route bounds when route changes
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || !route?.path?.length) return;
+        if (!map) return;
 
-        const bounds = new google.maps.LatLngBounds();
-        route.path.forEach((coord) => bounds.extend(coord));
-        map.fitBounds(bounds, 60);
-    }, [route]);
+        if (route?.path?.length) {
+            const bounds = new google.maps.LatLngBounds();
+            route.path.forEach((coord) => bounds.extend(coord));
+            // Also include places in the bounds
+            places.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
+            map.fitBounds(bounds, 60);
+        } else if (places.length > 0) {
+            // No route, but we have places — fit to places bounds
+            const bounds = new google.maps.LatLngBounds();
+            places.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
+            map.fitBounds(bounds, 60);
+        }
+    }, [route, places]);
 
     // Pan to selected place
     useEffect(() => {

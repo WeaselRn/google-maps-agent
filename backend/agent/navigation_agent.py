@@ -30,7 +30,7 @@ from tools.detour import calculate_detour, optimize_stops, suggest_contextual_st
 
 navigation_agent = Agent(
     name="navigation_copilot",
-    model="gemini-3.1-flash-lite",
+    model="gemini-2.5-flash-lite",
     instruction=NAVIGATION_AGENT_SYSTEM_PROMPT,
     tools=[
         get_route,
@@ -214,13 +214,27 @@ async def _execute_agent(query: str) -> dict:
 
 def _parse_agent_response(text: str, original_query: str) -> dict:
     """Parse structured JSON from agent response, with text fallback."""
-    json_match = re.search(r'\{.*\}', text, re.DOTALL)
+    # Some models output Python-style None instead of JSON null
+    cleaned_text = text.replace(": None", ": null").replace(":None", ":null")
+
+    json_match = re.search(r'\{.*\}', cleaned_text, re.DOTALL)
     if json_match:
         try:
             parsed = json.loads(json_match.group())
+            summary = parsed.get("summary", "")
+            # Clean up summary — remove any leftover JSON fragments
+            if not summary or summary.strip().startswith("{"):
+                summary = f"Here are the results for: {original_query}"
+
+            # Clean places — ensure all have valid lat/lng
+            places = []
+            for p in parsed.get("places", []):
+                if isinstance(p, dict) and p.get("lat") and p.get("lng"):
+                    places.append(p)
+
             return {
-                "summary": parsed.get("summary", text),
-                "places": parsed.get("places", []),
+                "summary": summary,
+                "places": places,
                 "route": parsed.get("route"),
                 "suggestions": parsed.get("suggestions", []),
             }
