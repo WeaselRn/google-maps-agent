@@ -1,7 +1,8 @@
 """
 Navigation Copilot Agent
 Built with Google Agent Development Kit (ADK).
-Includes throttling, caching, and retry logic per fix.md.
+Includes throttling, caching, retry, session reuse,
+and max iteration cap per fix.md.
 """
 
 import asyncio
@@ -42,34 +43,31 @@ navigation_agent = Agent(
     ],
 )
 
-# Shared session service — keeps conversation context across queries
+# ---------------------------------------------------------------------------
+# Session reuse — one session per user (fix.md: "one session per user")
+# ---------------------------------------------------------------------------
 _session_service = InMemorySessionService()
+_user_sessions: dict[str, str] = {}  # {user_id: session_id}
 
-# Counter for unique session IDs
-_session_counter = 0
-
-# ---------------------------------------------------------------------------
-# Fix 1: Request throttling — limit concurrent Gemini calls (fix.md §1)
-# ---------------------------------------------------------------------------
-_gemini_semaphore = asyncio.Semaphore(1)  # Only 1 concurrent agent call
+# Max tool-call iterations per query (fix.md: cap at 2 to prevent loops)
+MAX_AGENT_ITERATIONS = 2
 
 # ---------------------------------------------------------------------------
-# Fix 2: Response caching — cache identical queries (fix.md §2)
+# Fix 1: Request throttling (fix.md)
 # ---------------------------------------------------------------------------
-_cache: dict[str, tuple[dict, float]] = {}  # {query: (result, timestamp)}
-CACHE_TTL_SECONDS = 300  # 5-minute cache
+_gemini_semaphore = asyncio.Semaphore(1)
+
+# ---------------------------------------------------------------------------
+# Fix 2: Response caching (fix.md)
+# ---------------------------------------------------------------------------
+_cache: dict[str, tuple[dict, float]] = {}
+CACHE_TTL_SECONDS = 300
 
 
 async def run_agent(query: str) -> dict:
     """
-    Process a natural-language navigation query through the ADK agent.
-    Includes throttling, caching, and retry with exponential backoff.
-
-    Args:
-        query: The user's navigation query
-
-    Returns:
-        Structured dict with keys: summary, places, route, suggestions
+    Process a navigation query with throttling, caching, retry,
+    session reuse, and iteration capping.
     """
     # --- Cache check ---
     cache_key = query.strip().lower()
@@ -87,18 +85,14 @@ async def run_agent(query: str) -> dict:
 
 
 async def _throttled_run(query: str) -> dict:
-    """Run the agent with concurrency throttling, cooldown, and retry logic."""
+    """Throttled execution with 12s cooldown."""
     async with _gemini_semaphore:
-        # Proactive 12s cooldown before each call to stay under RPM limits (fix.md §1)
         await asyncio.sleep(12)
         return await _run_with_retry(query, max_retries=3)
 
 
-# ---------------------------------------------------------------------------
-# Fix 5: Automatic retry with exponential backoff (fix.md §5)
-# ---------------------------------------------------------------------------
 async def _run_with_retry(query: str, max_retries: int = 3) -> dict:
-    """Run the agent, retrying on 429 / ResourceExhausted errors."""
+    """Retry on 429 / ResourceExhausted with exponential backoff."""
     for attempt in range(max_retries + 1):
         try:
             return await _execute_agent(query)
@@ -106,11 +100,10 @@ async def _run_with_retry(query: str, max_retries: int = 3) -> dict:
             error_str = str(e).lower()
             is_rate_limit = "429" in error_str or ("resource" in error_str and "exhausted" in error_str)
             if is_rate_limit and attempt < max_retries:
-                delay = 10 * (2 ** attempt)  # 10s, 20s, 40s, 80s, 160s
-                print(f"[RETRY] Gemini rate limited. Waiting {delay}s (attempt {attempt + 1}/{max_retries})")
+                delay = 10 * (2 ** attempt)
+                print(f"[RETRY] Rate limited. Waiting {delay}s (attempt {attempt + 1}/{max_retries})")
                 await asyncio.sleep(delay)
                 continue
-            # Not a rate limit error, or retries exhausted
             print(f"[ERROR] Agent failed: {e}")
             return {
                 "summary": "Sorry, the AI service is temporarily busy. Please try again in a moment.",
@@ -119,7 +112,6 @@ async def _run_with_retry(query: str, max_retries: int = 3) -> dict:
                 "suggestions": [],
             }
 
-    # Should not reach here
     return {
         "summary": "Sorry, something went wrong. Please try again.",
         "places": [],
@@ -129,14 +121,21 @@ async def _run_with_retry(query: str, max_retries: int = 3) -> dict:
 
 
 async def _execute_agent(query: str) -> dict:
-    """Core agent execution logic — one attempt."""
-    global _session_counter
-    _session_counter += 1
+    """
+    Core agent execution with session reuse and iteration cap.
+    Reuses the same session for the same user (fix.md: session reuse).
+    Caps tool iterations to MAX_AGENT_ITERATIONS (fix.md: prevent loops).
+    """
+    user_id = "web_user"
 
-    session = await _session_service.create_session(
-        app_name="navigation_copilot",
-        user_id="web_user",
-    )
+    # Reuse existing session or create one (fix.md: one session per user)
+    if user_id not in _user_sessions:
+        session = await _session_service.create_session(
+            app_name="navigation_copilot",
+            user_id=user_id,
+        )
+        _user_sessions[user_id] = session.id
+    session_id = _user_sessions[user_id]
 
     runner = Runner(
         agent=navigation_agent,
@@ -150,26 +149,35 @@ async def _execute_agent(query: str) -> dict:
     )
 
     final_text = ""
+    tool_call_count = 0
+
     async for event in runner.run_async(
-        user_id="web_user",
-        session_id=session.id,
+        user_id=user_id,
+        session_id=session_id,
         new_message=user_message,
     ):
+        # Count tool calls to cap iterations (fix.md: max_iterations)
+        if event.content and event.content.parts:
+            for part in event.content.parts:
+                if part.function_call:
+                    tool_call_count += 1
+                    if tool_call_count > MAX_AGENT_ITERATIONS:
+                        print(f"[CAP] Stopping agent after {MAX_AGENT_ITERATIONS} tool calls")
+                        break
+
         if event.is_final_response():
             for part in event.content.parts:
                 if part.text:
                     final_text += part.text
 
-    # Try to extract structured JSON from the agent's text response
+        if tool_call_count > MAX_AGENT_ITERATIONS:
+            break
+
     return _parse_agent_response(final_text, query)
 
 
 def _parse_agent_response(text: str, original_query: str) -> dict:
-    """
-    Attempt to parse structured JSON from the agent response.
-    Falls back to a text-only summary if no JSON is found.
-    """
-    # Try to find JSON block in the response
+    """Parse structured JSON from agent response, with text fallback."""
     json_match = re.search(r'\{[\s\S]*\}', text)
     if json_match:
         try:
@@ -183,7 +191,6 @@ def _parse_agent_response(text: str, original_query: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    # Fallback: return the text as a summary
     return {
         "summary": text or f"Processed query: {original_query}",
         "places": [],

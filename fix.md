@@ -1,167 +1,135 @@
-If your Google Maps AI agent is getting rate limited by the Google Gemini API, it usually means you're hitting requests-per-minute (RPM) or tokens-per-minute (TPM) limits. This happens a lot during development when the app sends too many calls quickly.
+The subtle issue: Agent tool loops
 
-Since you mentioned earlier you're building a navigation copilot, that architecture can easily spam the API (especially if the frontend calls Gemini repeatedly).
+You’re using an agent with multiple tools:
 
-Here are the most effective fixes 👇
+tools=[
+    get_route,
+    search_places,
+    search_places_along_route,
+    search_places_near_point,
+    calculate_detour,
+    optimize_stops,
+    suggest_contextual_stops,
+]
 
-1️⃣ Add Request Throttling (Most Important)
+When an agent like this runs in frameworks similar to what you’re using, the LLM can do:
 
-Make sure your backend limits how often Gemini is called.
+LLM reasoning
+→ call tool
+→ tool result
+→ LLM reasoning
+→ call another tool
+→ tool result
+→ final answer
 
-Example Node.js throttling:
+Each reasoning step = another model call.
 
-import pLimit from "p-limit";
+So one user query may become:
 
-const limit = pLimit(2); // only 2 concurrent Gemini calls
+1️⃣ plan
+2️⃣ call get_route
+3️⃣ analyze route
+4️⃣ call search_places
+5️⃣ analyze results
+6️⃣ summarize
 
-async function callGemini(prompt) {
-  return limit(async () => {
-    const result = await model.generateContent(prompt);
-    return result.response.text();
-  });
-}
+That is 4–6 Gemini calls for one request.
 
-Or simple delay:
+Your throttling only wraps:
 
-await new Promise(r => setTimeout(r, 1000));
+await _execute_agent(query)
 
-This prevents bursts.
+But inside runner.run_async() the agent may call Gemini multiple times.
 
-2️⃣ Add Response Caching
+Evidence in your code
 
-Your agent likely sends similar prompts repeatedly.
+This loop:
 
-Cache them.
+async for event in runner.run_async(...)
 
-Example:
+is where the agent performs multiple model steps internally.
 
-const cache = new Map();
+Your semaphore protects one agent run, not each internal model call.
 
-async function askGemini(prompt) {
-  if (cache.has(prompt)) return cache.get(prompt);
+How to dramatically reduce calls
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
+For a navigation copilot, the agent should not decide routing tools dynamically.
 
-  cache.set(prompt, text);
-  return text;
-}
+Instead use a deterministic pipeline:
 
-Even better: use Redis if deployed.
+User query
+↓
+Extract intent
+↓
+Call routing tools directly
+↓
+Send final context to Gemini once
 
-3️⃣ Debounce Frontend Requests
+Example flow:
 
-If you're sending a request on every map movement / typing, Gemini will explode with calls.
+User: "Find coffee shops along my route to Kochi"
 
-Debounce it:
+1️⃣ get_route(origin, destination)
+2️⃣ search_places_along_route(route, "coffee")
+3️⃣ Gemini summarizes results
 
-const debounce = (fn, delay) => {
-  let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), delay);
-  };
-};
+That becomes 1 Gemini call instead of 5.
 
-Example usage:
+Minimal change to your code
 
-debounce(sendToAI, 1500)
-4️⃣ Use a Cheaper Model
+Add max tool iterations if the framework supports it.
 
-If you're using Gemini Pro, try:
+Example pattern:
 
-gemini-1.5-flash
+navigation_agent = Agent(
+    name="navigation_copilot",
+    model="gemini-3.1-flash-lite",
+    instruction=NAVIGATION_AGENT_SYSTEM_PROMPT,
+    tools=[...],
+    max_iterations=2
+)
 
-Much higher limits.
+This prevents runaway loops.
 
-Example:
+Another improvement
 
-model: "gemini-1.5-flash"
-5️⃣ Implement Automatic Retry
+Your cooldown is very conservative:
 
-Gemini returns 429 errors when rate limited.
+await asyncio.sleep(12)
 
-Retry with exponential backoff:
+With 5 RPM you only need:
 
-async function retry(fn, retries = 5) {
-  try {
-    return await fn();
-  } catch (err) {
-    if (err.status === 429 && retries > 0) {
-      await new Promise(r => setTimeout(r, (6 - retries) * 1000));
-      return retry(fn, retries - 1);
-    }
-    throw err;
-  }
-}
-6️⃣ Batch Map Data Before Sending
+60 / 5 = 12 seconds
 
-Instead of:
+So it’s correct — but once you get higher quota you can drop it to 1–2 seconds.
 
-User moved map → call Gemini
-User zoomed → call Gemini
-User clicked → call Gemini
+One more hidden issue
 
-Do:
+You create a new session for every query:
 
-Collect events → send single prompt
+session = await _session_service.create_session(...)
 
-Example:
+That means the model loses conversation context, so it often:
 
-User route: A → B
-Traffic: heavy
-User question: best alternative?
+re-plans
 
-Single request.
+re-calls tools
 
-7️⃣ Upgrade Quota (Fastest Fix)
+re-reasons
 
-If this is for a hackathon or project demo, request quota increase in:
+Which increases calls.
 
-Google AI Studio
+Better:
 
-Steps:
+one session per user
+The biggest improvement for your project
 
-Open AI Studio
+For a maps AI agent, the best architecture is:
 
-Go to API Keys
-
-Click Request quota increase
-
-8️⃣ Local Fallback (Highly Recommended)
-
-For navigation tasks you don't need Gemini for everything.
-
-Use:
-
-OSRM → routing
-
-OpenStreetMap → map data
-
-Use Gemini only for:
-
-natural language explanation
-
-route summaries
-
-suggestions
-
-✅ Ideal architecture for your agent
-
-User input
-   ↓
-Routing → OSRM
-   ↓
-Map UI → Leaflet / Mapbox
-   ↓
-Optional explanation → Gemini
-
-This reduces Gemini usage by ~90%.
-
-💡 One more thing I suspect in your repo
-
-Your React frontend might be calling Gemini directly, which causes massive request bursts.
-
-Instead:
-
-React → Backend → Gemini
+Frontend
+↓
+Backend intent parser
+↓
+Routing + place search tools
+↓
+Gemini explanation (single call)
