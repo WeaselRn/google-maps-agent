@@ -57,6 +57,10 @@ MAX_AGENT_ITERATIONS = 2
 # ---------------------------------------------------------------------------
 _gemini_semaphore = asyncio.Semaphore(1)
 
+# Fix 3: Adaptive cooldown — only wait remaining time since last call
+_last_call_time: float = 0
+MIN_CALL_INTERVAL = 12  # seconds (60 / 5 RPM)
+
 # ---------------------------------------------------------------------------
 # Fix 2: Response caching (fix.md)
 # ---------------------------------------------------------------------------
@@ -69,8 +73,9 @@ async def run_agent(query: str) -> dict:
     Process a navigation query with throttling, caching, retry,
     session reuse, and iteration capping.
     """
-    # --- Cache check ---
-    cache_key = query.strip().lower()
+    # --- Cache check (fix.md §2: include user_id in key) ---
+    user_id = "web_user"
+    cache_key = f"{user_id}:{query.strip().lower()}"
     if cache_key in _cache:
         cached_result, cached_time = _cache[cache_key]
         if time.time() - cached_time < CACHE_TTL_SECONDS:
@@ -85,10 +90,30 @@ async def run_agent(query: str) -> dict:
 
 
 async def _throttled_run(query: str) -> dict:
-    """Throttled execution with 12s cooldown."""
+    """Throttled execution with adaptive cooldown and global timeout."""
     async with _gemini_semaphore:
-        await asyncio.sleep(12)
-        return await _run_with_retry(query, max_retries=3)
+        # Fix 3: Adaptive cooldown — only wait the remaining time
+        global _last_call_time
+        now = time.time()
+        wait = max(0, MIN_CALL_INTERVAL - (now - _last_call_time))
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _last_call_time = time.time()
+
+        # Fix 5: Global 30s timeout so agent never hangs
+        try:
+            return await asyncio.wait_for(
+                _run_with_retry(query, max_retries=3),
+                timeout=30,
+            )
+        except asyncio.TimeoutError:
+            print("[TIMEOUT] Agent exceeded 30s")
+            return {
+                "summary": "Request timed out. Please try a simpler query.",
+                "places": [],
+                "route": None,
+                "suggestions": [],
+            }
 
 
 async def _run_with_retry(query: str, max_retries: int = 3) -> dict:
@@ -156,22 +181,19 @@ async def _execute_agent(query: str) -> dict:
         session_id=session_id,
         new_message=user_message,
     ):
-        # Count tool calls to cap iterations (fix.md: max_iterations)
+        # Fix 1: Count tool calls, return early at limit (fix.md: use >=)
         if event.content and event.content.parts:
             for part in event.content.parts:
                 if part.function_call:
                     tool_call_count += 1
-                    if tool_call_count > MAX_AGENT_ITERATIONS:
-                        print(f"[CAP] Stopping agent after {MAX_AGENT_ITERATIONS} tool calls")
-                        break
+                    if tool_call_count >= MAX_AGENT_ITERATIONS:
+                        print(f"[CAP] Tool iteration limit reached ({MAX_AGENT_ITERATIONS})")
+                        return _parse_agent_response(final_text, query)
 
         if event.is_final_response():
             for part in event.content.parts:
                 if part.text:
                     final_text += part.text
-
-        if tool_call_count > MAX_AGENT_ITERATIONS:
-            break
 
     return _parse_agent_response(final_text, query)
 
