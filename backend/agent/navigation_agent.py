@@ -1,10 +1,14 @@
 """
 Navigation Copilot Agent
 Built with Google Agent Development Kit (ADK).
+Includes throttling, caching, and retry logic per fix.md.
 """
 
+import asyncio
 import json
 import re
+import time
+
 from google.adk.agents import Agent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -25,7 +29,7 @@ from tools.detour import calculate_detour, optimize_stops, suggest_contextual_st
 
 navigation_agent = Agent(
     name="navigation_copilot",
-    model="gemini-2.5-flash",
+    model="gemini-3.1-flash-lite",
     instruction=NAVIGATION_AGENT_SYSTEM_PROMPT,
     tools=[
         get_route,
@@ -41,21 +45,91 @@ navigation_agent = Agent(
 # Shared session service — keeps conversation context across queries
 _session_service = InMemorySessionService()
 
-# Counter for unique session IDs when conversation context is not needed
+# Counter for unique session IDs
 _session_counter = 0
+
+# ---------------------------------------------------------------------------
+# Fix 1: Request throttling — limit concurrent Gemini calls (fix.md §1)
+# ---------------------------------------------------------------------------
+_gemini_semaphore = asyncio.Semaphore(1)  # Only 1 concurrent agent call
+
+# ---------------------------------------------------------------------------
+# Fix 2: Response caching — cache identical queries (fix.md §2)
+# ---------------------------------------------------------------------------
+_cache: dict[str, tuple[dict, float]] = {}  # {query: (result, timestamp)}
+CACHE_TTL_SECONDS = 300  # 5-minute cache
 
 
 async def run_agent(query: str) -> dict:
     """
     Process a natural-language navigation query through the ADK agent.
+    Includes throttling, caching, and retry with exponential backoff.
 
     Args:
         query: The user's navigation query
-              (e.g. "Find cafes along my route to Lulu Mall")
 
     Returns:
         Structured dict with keys: summary, places, route, suggestions
     """
+    # --- Cache check ---
+    cache_key = query.strip().lower()
+    if cache_key in _cache:
+        cached_result, cached_time = _cache[cache_key]
+        if time.time() - cached_time < CACHE_TTL_SECONDS:
+            return cached_result
+
+    # --- Throttled + retried execution ---
+    result = await _throttled_run(query)
+
+    # --- Store in cache ---
+    _cache[cache_key] = (result, time.time())
+    return result
+
+
+async def _throttled_run(query: str) -> dict:
+    """Run the agent with concurrency throttling, cooldown, and retry logic."""
+    async with _gemini_semaphore:
+        # Proactive 12s cooldown before each call to stay under RPM limits (fix.md §1)
+        await asyncio.sleep(12)
+        return await _run_with_retry(query, max_retries=3)
+
+
+# ---------------------------------------------------------------------------
+# Fix 5: Automatic retry with exponential backoff (fix.md §5)
+# ---------------------------------------------------------------------------
+async def _run_with_retry(query: str, max_retries: int = 3) -> dict:
+    """Run the agent, retrying on 429 / ResourceExhausted errors."""
+    for attempt in range(max_retries + 1):
+        try:
+            return await _execute_agent(query)
+        except Exception as e:
+            error_str = str(e).lower()
+            is_rate_limit = "429" in error_str or ("resource" in error_str and "exhausted" in error_str)
+            if is_rate_limit and attempt < max_retries:
+                delay = 10 * (2 ** attempt)  # 10s, 20s, 40s, 80s, 160s
+                print(f"[RETRY] Gemini rate limited. Waiting {delay}s (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(delay)
+                continue
+            # Not a rate limit error, or retries exhausted
+            print(f"[ERROR] Agent failed: {e}")
+            return {
+                "summary": "Sorry, the AI service is temporarily busy. Please try again in a moment.",
+                "places": [],
+                "route": None,
+                "suggestions": [],
+            }
+
+    # Should not reach here
+    return {
+        "summary": "Sorry, something went wrong. Please try again.",
+        "places": [],
+        "route": None,
+        "suggestions": [],
+    }
+
+
+async def _execute_agent(query: str) -> dict:
+    """Core agent execution logic — one attempt."""
     global _session_counter
     _session_counter += 1
 
@@ -81,18 +155,6 @@ async def run_agent(query: str) -> dict:
         session_id=session.id,
         new_message=user_message,
     ):
-        # Debug: log every event
-        print(f"[AGENT EVENT] author={event.author}, is_final={event.is_final_response()}")
-        if event.content and event.content.parts:
-            for part in event.content.parts:
-                if part.text:
-                    print(f"  [TEXT] {part.text[:200]}")
-                if part.function_call:
-                    print(f"  [TOOL CALL] {part.function_call.name}({part.function_call.args})")
-                if part.function_response:
-                    resp_str = str(part.function_response.response)
-                    print(f"  [TOOL RESPONSE] {resp_str[:200]}")
-
         if event.is_final_response():
             for part in event.content.parts:
                 if part.text:
