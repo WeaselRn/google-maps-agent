@@ -68,6 +68,14 @@ _cache: dict[str, tuple[dict, float]] = {}
 CACHE_TTL_SECONDS = 300
 
 
+def _cleanup_cache():
+    """Evict expired cache entries to prevent memory growth."""
+    now = time.time()
+    expired = [k for k, v in _cache.items() if now - v[1] > CACHE_TTL_SECONDS]
+    for k in expired:
+        del _cache[k]
+
+
 async def run_agent(query: str) -> dict:
     """
     Process a navigation query with throttling, caching, retry,
@@ -81,6 +89,9 @@ async def run_agent(query: str) -> dict:
         if time.time() - cached_time < CACHE_TTL_SECONDS:
             return cached_result
 
+    # --- Cleanup stale cache entries ---
+    _cleanup_cache()
+
     # --- Throttled + retried execution ---
     result = await _throttled_run(query)
 
@@ -92,21 +103,24 @@ async def run_agent(query: str) -> dict:
 async def _throttled_run(query: str) -> dict:
     """Throttled execution with adaptive cooldown and global timeout."""
     async with _gemini_semaphore:
-        # Fix 3: Adaptive cooldown — only wait the remaining time
+        # Adaptive cooldown — only wait the remaining time
         global _last_call_time
         now = time.time()
         wait = max(0, MIN_CALL_INTERVAL - (now - _last_call_time))
         if wait > 0:
             await asyncio.sleep(wait)
-        _last_call_time = time.time()
 
-        # Fix 5: Global 30s timeout so agent never hangs
+        # Global 30s timeout so agent never hangs
         try:
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 _run_with_retry(query, max_retries=3),
                 timeout=30,
             )
+            # Update timestamp AFTER request finishes (fix.md)
+            _last_call_time = time.time()
+            return result
         except asyncio.TimeoutError:
+            _last_call_time = time.time()
             print("[TIMEOUT] Agent exceeded 30s")
             return {
                 "summary": "Request timed out. Please try a simpler query.",
@@ -200,7 +214,7 @@ async def _execute_agent(query: str) -> dict:
 
 def _parse_agent_response(text: str, original_query: str) -> dict:
     """Parse structured JSON from agent response, with text fallback."""
-    json_match = re.search(r'\{[\s\S]*\}', text)
+    json_match = re.search(r'\{.*\}', text, re.DOTALL)
     if json_match:
         try:
             parsed = json.loads(json_match.group())
