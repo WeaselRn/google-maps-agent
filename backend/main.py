@@ -9,20 +9,16 @@ from dotenv import load_dotenv
 
 from api.agent_endpoint import router as agent_router
 
-@app.get("/")
-def root():
-    return {
-        "service": "Navigation Copilot API",
-        "status": "running"
-    }
 
 load_dotenv()
 
-app = FastAPI(
-    title="AI Navigation Copilot",
-    description="Multimodal AI agent for route-aware navigation assistance",
-    version="0.1.0",
-)
+@app.get("/")
+def root():
+    return {
+        "title": "AI Navigation Copilot",
+        "description": "Multimodal AI agent for route-aware navigation assistance",
+        "version": "0.1.0",
+    }
 
 # CORS — allow frontend dev server
 app.add_middleware(
