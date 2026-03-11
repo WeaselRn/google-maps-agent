@@ -9,6 +9,13 @@ from dotenv import load_dotenv
 
 from api.agent_endpoint import router as agent_router
 
+@app.get("/")
+def root():
+    return {
+        "service": "Navigation Copilot API",
+        "status": "running"
+    }
+
 load_dotenv()
 
 app = FastAPI(
