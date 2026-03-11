@@ -50,7 +50,7 @@ _session_service = InMemorySessionService()
 _user_sessions: dict[str, str] = {}  # {user_id: session_id}
 
 # Max tool-call iterations per query (fix.md: cap at 2 to prevent loops)
-MAX_AGENT_ITERATIONS = 2
+MAX_AGENT_ITERATIONS = 6
 
 # ---------------------------------------------------------------------------
 # Fix 1: Request throttling (fix.md)
