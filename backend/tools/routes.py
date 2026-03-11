@@ -13,7 +13,10 @@ DIRECTIONS_URL = "https://maps.googleapis.com/maps/api/directions/json"
 
 
 def compress_path(path: list[dict], max_points: int = 50):
-
+    """
+    Compress route path to avoid sending thousands of coordinates
+    to the frontend.
+    """
     if not path:
         return []
 
@@ -25,6 +28,9 @@ def compress_path(path: list[dict], max_points: int = 50):
 
 
 async def get_route(origin: str, destination: str) -> dict:
+    """
+    Calculate a route between origin and destination using Google Directions API.
+    """
 
     params = {
         "origin": origin,
@@ -39,7 +45,6 @@ async def get_route(origin: str, destination: str) -> dict:
         data = response.json()
 
     if data.get("status") != "OK" or not data.get("routes"):
-
         return {
             "path": [],
             "distance": None,
@@ -75,7 +80,13 @@ async def get_route(origin: str, destination: str) -> dict:
     }
 
 
-def sample_route_coordinates(path: list[dict] | None, max_samples: int = 15):
+def sample_route_coordinates(path: list[dict] | None, max_samples: int = 40):
+    """
+    Sample coordinates along a route.
+
+    Increased from 15 → 40 for better coverage
+    along longer routes.
+    """
 
     if not path:
         return []

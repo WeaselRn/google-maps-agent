@@ -15,6 +15,7 @@ PLACES_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
 PLACE_TYPE_MAP = {
     "restaurant": "restaurant",
     "cafe": "cafe",
+    "coffee": "cafe",
     "gas_station": "gas_station",
     "fuel": "gas_station",
     "tourist_attraction": "tourist_attraction",
@@ -24,12 +25,42 @@ PLACE_TYPE_MAP = {
     "parking": "parking",
     "supermarket": "supermarket",
     "atm": "atm",
+
     "metro": "subway_station",
-    "metro_station": "subway_station",
+    "metro station": "subway_station",
+    "subway": "subway_station",
+
     "train": "train_station",
-    "train_station": "train_station",
+    "train station": "train_station",
+
     "charging": "electric_vehicle_charging_station",
+    "ev charging": "electric_vehicle_charging_station",
 }
+
+
+def normalize_place_query(query: str) -> str:
+    """
+    Convert natural language queries into usable place categories.
+    """
+
+    q = query.lower()
+
+    if "cafe" in q or "coffee" in q:
+        return "cafe"
+
+    if "restaurant" in q or "food" in q:
+        return "restaurant"
+
+    if "metro" in q:
+        return "metro station"
+
+    if "train" in q:
+        return "train station"
+
+    if "charging" in q:
+        return "charging"
+
+    return query
 
 
 async def _geocode(location_str: str):
@@ -71,11 +102,13 @@ async def search_places(location: str, place_type: str):
     if not coords:
         return []
 
+    place_type = normalize_place_query(place_type)
+
     google_type = PLACE_TYPE_MAP.get(place_type)
 
     params = {
         "location": f"{coords['lat']},{coords['lng']}",
-        "radius": 1500,
+        "radius": 5000,
         "key": GOOGLE_MAPS_API_KEY,
     }
 
